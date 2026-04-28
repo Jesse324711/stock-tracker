@@ -500,12 +500,39 @@ function fmtP(n){return(n>=0?'+':'')+Number(n).toFixed(2)+'%';}
 
 function calcRealized(){
   let total=0;
-  txHist.filter(h=>h.type==='sell').forEach(h=>{
-    const buys=txHist.filter(t=>t.type==='buy'&&t.symbol===h.symbol&&t.market===h.market);
-    if(!buys.length)return;
-    const avgC=buys.reduce((a,t)=>a+t.cost*t.shares,0)/buys.reduce((a,t)=>a+t.shares,0);
-    total+=(h.cost-avgC)*h.shares-(h.fee||0);
-  });return total;
+  // 對每支股票分別用 FIFO 計算已實現損益
+  const symbols=[...new Set(txHist.map(t=>t.symbol+'_'+t.market))];
+  symbols.forEach(key=>{
+    const [sym,mkt]=key.split('_');
+    const txs=txHist.filter(t=>t.symbol===sym&&t.market===mkt).sort((a,b)=>a.date.localeCompare(b.date));
+    // FIFO queue：依時間順序的買入記錄
+    const buyQueue=[];
+    txs.forEach(tx=>{
+      if(tx.type==='buy'){
+        buyQueue.push({shares:tx.shares, cost:tx.cost, fee:tx.fee||0});
+      } else if(tx.type==='sell'){
+        let remainSell=tx.shares;
+        let costBasis=0;
+        let buyFeeAllocated=0;
+        // 從最早的買入扣除（FIFO）
+        while(remainSell>0&&buyQueue.length>0){
+          const front=buyQueue[0];
+          const used=Math.min(front.shares, remainSell);
+          const ratio=used/front.shares;
+          costBasis+=front.cost*used;
+          buyFeeAllocated+=front.fee*ratio;
+          front.shares-=used;
+          if(front.shares<=0) front.shares=used, buyQueue.shift();
+          remainSell-=used;
+        }
+        // 已實現損益 = 賣出金額 - 買入成本 - 買入手續費(分攤) - 賣出手續費
+        const sellAmt=tx.cost*tx.shares;
+        const sellFee=tx.fee||0;
+        total+=sellAmt-costBasis-buyFeeAllocated-sellFee;
+      }
+    });
+  });
+  return total;
 }
 function calcDivTotal(){
   return divs.reduce((a,d)=>{
