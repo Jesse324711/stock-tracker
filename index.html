@@ -414,12 +414,24 @@ async function fugleCandle(sym){
   }catch(e){return null;}
 }
 async function yahoo(sym){
-  for(const h of['query1','query2']){
+  // 嘗試多個 endpoint 和參數組合提升成功率
+  const endpoints=[
+    `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`,
+    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}`,
+  ];
+  for(const url of endpoints){
     try{
-      const r=await fetch(`https://${h}.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`);
-      if(!r.ok)continue;const d=await r.json();
+      const r=await fetch(url,{headers:{'Accept':'application/json'}});
+      if(!r.ok)continue;
+      const d=await r.json();
+      // v8 chart format
       const meta=d.chart?.result?.[0]?.meta;
-      const p=meta?.regularMarketPrice||meta?.previousClose;if(p)return p;
+      if(meta){const p=meta.regularMarketPrice||meta.previousClose;if(p)return p;}
+      // v7 quote format
+      const q=d.quoteResponse?.result?.[0];
+      if(q){const p=q.regularMarketPrice||q.ask||q.bid;if(p)return p;}
     }catch(e){continue;}
   }return null;
 }
@@ -554,7 +566,7 @@ function renderTable(){
       <td class="${pos?'pos':'neg'}">${pos?'+':''}${fmt(pnl,0)}</td>
       <td class="${pos?'pos':'neg'}">${fmtP(pct)}</td>
       <td class="hs"><span style="font-size:12px">${w.toFixed(1)}%</span><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(w,100)}%;background:${pos?'var(--green)':'var(--red)'}"></div></div></td>
-      <td><div style="display:flex;gap:4px"><button class="btn xs" onclick="openEditModal(${i})">✏️</button><button class="btn xs danger" onclick="rmStock(${i})">✕</button></div></td>
+      <td><div style="display:flex;gap:4px"><button class="btn sm" onclick="openEditModal(${i})" title="編輯">✏️ 編輯</button><button class="btn sm danger" onclick="rmStock(${i})" title="刪除持股">🗑 刪除</button></div></td>
     </tr>`;
   }).join('');
 }
